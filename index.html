@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#020202">
+<title>指の動きが、もう一方の腕を動かすまで — MetaPuppet</title>
+<meta name="description" content="指のピンチをUnityで検出し、UDPでRaspberry Piへ送り、STSサーボとPD制御でケーブルを巻き取り、参加者自身の前腕を動かす。MetaPuppetのハードウェアと制御の実装記録。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="指の動きが、もう一方の腕を動かすまで — MetaPuppet">
+<meta property="og:description" content="指のピンチ検出からサーボ駆動まで。MetaPuppetのハードウェアと制御の実装記録。">
+<meta property="og:url" content="https://meta-puppet.github.io/control/">
+<meta property="og:image" content="https://meta-puppet.github.io/control/mp_logo.png">
+<link rel="icon" type="image/png" href="mp_logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  /* dark-first, to match the MetaPuppet main site */
+  --paper:#020202;
+  --paper-raised:#0e0e10;
+  --ink:#f2f0ee;
+  --ink-soft:#9a9a9e;
+  --ink-faint:#6e6e73;
+  --rule:#232326;
+  --rule-strong:#35353a;
+  --accent:#e78fb3;
+  --accent-soft:#3a2530;
+  --accent2:#6fbfc4;
+  --accent2-soft:#193638;
+  --code-bg:#0a0a0b;
+  --code-ink:#e7e6e0;
+  --code-accent:#e78fb3;
+  --code-accent2:#6fbfc4;
+}
+
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --paper:#faf9f6;
+    --paper-raised:#f2f0eb;
+    --ink:#171a1d;
+    --ink-soft:#4b5459;
+    --ink-faint:#8b9296;
+    --rule:#d8d5cd;
+    --rule-strong:#b9b5aa;
+    --accent:#b8500e;
+    --accent-soft:#e8c7a9;
+    --accent2:#14646b;
+    --accent2-soft:#bcdadc;
+    --code-bg:#171a1d;
+    --code-ink:#e7e6e0;
+    --code-accent:#e0954f;
+    --code-accent2:#6fbfc4;
+  }
+}
+:root[data-theme="light"]{
+  --paper:#faf9f6;
+  --paper-raised:#f2f0eb;
+  --ink:#171a1d;
+  --ink-soft:#4b5459;
+  --ink-faint:#8b9296;
+  --rule:#d8d5cd;
+  --rule-strong:#b9b5aa;
+  --accent:#b8500e;
+  --accent-soft:#e8c7a9;
+  --accent2:#14646b;
+  --accent2-soft:#bcdadc;
+  --code-bg:#171a1d;
+  --code-ink:#e7e6e0;
+  --code-accent:#e0954f;
+  --code-accent2:#6fbfc4;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Noto Sans JP","Hiragino Sans",sans-serif;
+  font-size:15.5px;
+  line-height:1.9;
+  -webkit-font-smoothing:antialiased;
+}
+
+.page{
+  max-width:760px;
+  margin:0 auto;
+  padding:26px 40px 90px;
+}
+
+.cover{
+  max-width:760px;
+  margin:0 auto;
+  padding:76px 40px 60px;
+  border-bottom:1px solid var(--rule);
+}
+.cover-kicker{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;
+  letter-spacing:.18em;
+  color:var(--accent);
+  text-transform:uppercase;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:22px;
+}
+.cover-kicker::before{
+  content:"";
+  width:26px;height:1px;
+  background:var(--accent);
+  display:inline-block;
+}
+.cover h1{
+  font-family:"Hanken Grotesk","Noto Sans JP",sans-serif;
+  font-weight:800;
+  font-size:clamp(32px,5.6vw,48px);
+  line-height:1.4;
+  margin:0 0 20px;
+  text-wrap:balance;
+  letter-spacing:.01em;
+}
+.cover h1 em{
+  font-style:normal;
+  color:var(--accent);
+}
+.cover .sub{
+  font-size:15.5px;
+  color:var(--ink-soft);
+  max-width:56ch;
+  margin:0 0 34px;
+  text-wrap:balance;
+}
+.cover-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:28px 40px;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:12px;
+  color:var(--ink-soft);
+  border-top:1px solid var(--rule);
+  padding-top:22px;
+}
+.cover-meta div span{
+  display:block;
+  color:var(--ink-faint);
+  font-size:10px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  margin-bottom:4px;
+}
+.cover-meta div b{
+  color:var(--ink);
+  font-weight:700;
+  font-family:"Noto Sans JP",sans-serif;
+  font-size:13.5px;
+}
+.cover-meta .author{display:inline-flex; align-items:center; gap:8px;}
+.cover-meta .author img{width:22px; height:22px; border-radius:50%; object-fit:cover; display:block; filter:grayscale(1);}
+
+.pipeline{
+  max-width:760px;
+  margin:0 auto;
+  padding:26px 40px 30px;
+  display:flex;
+  align-items:stretch;
+  gap:0;
+  overflow-x:auto;
+  border-bottom:1px solid var(--rule);
+  background:var(--paper-raised);
+}
+.pl-step{
+  flex:1 0 auto;
+  min-width:104px;
+  padding:6px 14px;
+  position:relative;
+  font-family:"IBM Plex Mono",monospace;
+}
+.pl-step .n{
+  font-size:10px;
+  color:var(--accent);
+  letter-spacing:.08em;
+}
+.pl-step .t{
+  font-size:12.5px;
+  color:var(--ink);
+  font-weight:700;
+  margin-top:3px;
+  line-height:1.4;
+}
+.pl-step:not(:last-child)::after{
+  content:"→";
+  position:absolute;
+  right:-2px;
+  top:50%;
+  transform:translateY(-50%);
+  color:var(--ink-faint);
+  font-size:13px;
+}
+
+.chapter{
+  border-top:1px solid var(--rule-strong);
+  padding-top:46px;
+  margin-top:10px;
+}
+.chapter:first-of-type{border-top:none;}
+.chapter-head{
+  display:flex;
+  align-items:baseline;
+  gap:16px;
+  margin-bottom:8px;
+}
+.chapter-num{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:13px;
+  color:var(--accent2);
+  letter-spacing:.05em;
+  white-space:nowrap;
+}
+.chapter-stage{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+.chapter h2{
+  font-family:"Hanken Grotesk","Noto Sans JP",sans-serif;
+  font-weight:700;
+  font-size:26px;
+  margin:6px 0 30px;
+  text-wrap:balance;
+}
+.lede{
+  font-size:15.5px;
+  color:var(--ink-soft);
+  border-left:3px solid var(--accent);
+  padding-left:18px;
+  margin:0 0 34px;
+  text-wrap:balance;
+}
+
+.chapter h3{
+  font-family:"Hanken Grotesk","Noto Sans JP",sans-serif;
+  font-size:18.5px;
+  font-weight:700;
+  margin:38px 0 14px;
+}
+.chapter p{margin:0 0 20px;}
+
+.spec{
+  background:var(--paper-raised);
+  border:1px solid var(--rule);
+  border-left:3px solid var(--accent2);
+  border-radius:2px;
+  padding:20px 22px 6px;
+  margin:28px 0;
+  page-break-inside:avoid;
+  break-inside:avoid;
+}
+.spec-title{
+  font-family:"Noto Sans JP",sans-serif;
+  font-size:12.5px;
+  font-weight:700;
+  letter-spacing:.04em;
+  color:var(--accent2);
+  margin-bottom:10px;
+}
+
+.code-wrap{
+  margin:24px 0;
+  page-break-inside:avoid;
+  break-inside:avoid;
+}
+.code-label{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;
+  color:var(--ink-faint);
+  margin-bottom:6px;
+  letter-spacing:.05em;
+}
+pre{
+  background:var(--code-bg);
+  color:var(--code-ink);
+  padding:18px 20px;
+  border-radius:3px;
+  overflow-x:auto;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:12.5px;
+  line-height:1.7;
+  margin:0;
+}
+pre .k{color:var(--code-accent2);}
+pre .c{color:var(--code-accent);}
+code{
+  font-family:"IBM Plex Mono",monospace;
+  background:var(--paper-raised);
+  padding:1px 5px;
+  border-radius:2px;
+  font-size:.9em;
+  border:1px solid var(--rule);
+}
+
+.chapter a, .cover a, .footnotes a{
+  color:var(--accent2);
+  text-decoration-color:var(--rule-strong);
+  text-underline-offset:2px;
+}
+.chapter a:visited, .cover a:visited, .footnotes a:visited{color:var(--accent2);}
+.chapter a:hover, .cover a:hover, .footnotes a:hover{color:var(--accent);}
+
+.diagram{
+  margin:30px 0;
+  border:1px solid var(--rule);
+  background:var(--paper-raised);
+  padding:22px;
+  page-break-inside:avoid;
+}
+.diagram-title{
+  font-family:"Noto Sans JP",sans-serif;
+  font-size:12.5px;
+  font-weight:700;
+  color:var(--ink-faint);
+  margin-bottom:14px;
+}
+.dg-col{display:flex; flex-direction:column;}
+.dg-step{
+  border:1px solid var(--rule-strong);
+  background:var(--paper);
+  border-radius:2px;
+  padding:12px 16px;
+  line-height:1.6;
+}
+.dg-step b{display:block; font-size:13.5px; color:var(--ink); font-family:"Noto Sans JP",sans-serif;}
+.dg-step small{display:block; color:var(--ink-soft); font-size:12px; margin-top:2px;}
+.dg-step .code-note{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-faint);}
+.dg-step.hot{border-color:var(--accent);} .dg-step.hot b{color:var(--accent);}
+.dg-step.gpu{border-color:var(--accent2);} .dg-step.gpu b{color:var(--accent2);}
+.dg-down{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11px;
+  color:var(--ink-faint);
+  padding:7px 0 7px 18px;
+}
+
+table.data{
+  width:100%;
+  border-collapse:collapse;
+  margin:24px 0;
+  font-size:13.5px;
+}
+table.data caption{
+  text-align:left;
+  font-size:12.5px;
+  font-weight:700;
+  color:var(--ink-soft);
+  margin-bottom:10px;
+  caption-side:top;
+}
+table.data th{
+  text-align:left;
+  font-family:"Noto Sans JP",sans-serif;
+  font-size:12px;
+  font-weight:700;
+  color:var(--ink-soft);
+  border-bottom:1px solid var(--rule-strong);
+  padding:8px 14px 8px 0;
+}
+table.data td{
+  border-bottom:1px solid var(--rule);
+  padding:10px 14px 10px 0;
+  vertical-align:top;
+}
+table.data td.num{font-family:"IBM Plex Mono",monospace;color:var(--accent2);font-weight:700;white-space:nowrap;}
+table.data td.label{font-weight:700;white-space:nowrap;}
+
+sup.fnref{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10px;
+  color:var(--accent2);
+  margin-left:1px;
+}
+sup.fnref a{color:inherit;text-decoration:none;}
+.footnotes{
+  margin-top:34px;
+  padding-top:16px;
+  border-top:1px solid var(--rule);
+}
+.footnotes ol{
+  margin:0;
+  padding-left:1.3em;
+  font-size:12.5px;
+  color:var(--ink-soft);
+  line-height:1.7;
+}
+.footnotes li{margin-bottom:8px;}
+.footnotes li:target,.footnotes li:target::marker{color:var(--accent);}
+
+.signature{
+  margin-top:56px;
+  padding-top:22px;
+  border-top:1px solid var(--rule);
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  font-size:13px;
+  color:var(--ink-faint);
+  font-family:"IBM Plex Mono",monospace;
+}
+
+.pagefoot{
+  max-width:760px;
+  margin:0 auto;
+  padding:30px 40px 60px;
+  color:var(--ink-faint);
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11px;
+  text-align:center;
+  letter-spacing:.05em;
+}
+
+.site-header{
+  position:sticky;
+  top:0;
+  z-index:50;
+  width:100%;
+  background:color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.site-header-inner{
+  max-width:760px;
+  margin:0 auto;
+  padding:16px 40px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+}
+.site-header .brand{
+  display:inline-flex;
+  align-items:center;
+  line-height:0;
+  opacity:.95;
+  transition:opacity .15s ease;
+}
+.site-header .brand:hover{opacity:1;}
+.site-header img{
+  height:40px;
+  width:auto;
+  display:block;
+}
+.site-nav{
+  display:flex;
+  gap:22px;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:12.5px;
+  letter-spacing:.04em;
+}
+.site-nav a{
+  color:var(--ink-faint);
+  text-decoration:none;
+}
+.site-nav a:hover{color:var(--accent);}
+.site-nav a[aria-current="page"]{color:var(--ink);}
+
+.embed{margin:28px 0;}
+.embed img{width:100%; height:auto; border:1px solid var(--rule-strong); border-radius:2px; display:block;}
+.embed-caption{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-faint); margin-top:8px;}
+.embed.portrait img{max-width:320px; margin:0 auto;}
+.embed.portrait .embed-caption{max-width:320px; margin-left:auto; margin-right:auto; text-align:center;}
+
+.safety{
+  background:var(--accent-soft);
+  border:1px solid var(--accent);
+  border-radius:2px;
+  padding:18px 22px;
+  margin:28px 0;
+  page-break-inside:avoid;
+}
+.safety-title{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:8px;
+  font-weight:700;
+}
+
+@media print{
+  .site-header{display:none;}
+  body{background:#fff;color:#111;font-size:11pt;}
+  .page,.cover,.pipeline,.pagefoot{max-width:none;padding-left:0;padding-right:0;}
+  @page{size:A4;margin:24mm 18mm;}
+  .chapter{page-break-before:always;border-top:none;padding-top:0;}
+  .chapter:first-of-type{page-break-before:avoid;}
+  pre{background:#f0efe9;color:#111;border:1px solid #ccc;}
+  pre .k,pre .c{color:#111;font-weight:700;}
+  .spec{background:#fff;}
+  a{color:inherit;text-decoration:underline;}
+}
+
+@media (max-width:600px){
+  .page,.cover,.pipeline,.pagefoot{padding-left:20px;padding-right:20px;}
+}
+</style>
+</head>
+<body>
+
+<article>
+
+<div class="site-header">
+  <div class="site-header-inner">
+    <a class="brand" href="https://meta-puppet.github.io/" aria-label="MetaPuppet トップへ戻る"><img src="mp_logo.png" alt="MetaPuppet"></a>
+    <nav class="site-nav">
+      <a href="https://meta-puppet.github.io/">Reports</a>
+      <a href="https://meta-puppet.github.io/credits/">Credits</a>
+    </nav>
+  </div>
+</div>
+
+<section class="cover">
+  <div class="cover-kicker">Hardware &amp; Control Notes — MetaPuppet</div>
+  <h1>指の動きが、<br><em>もう一方の腕</em>を動かすまで</h1>
+  <p class="sub">MetaPuppetは、参加者自身の指のピンチ動作を、参加者自身のもう一方の前腕を持ち上げる力に変換する。その入力から出力までを1本のUDPと1本のケーブルで結ぶ、ハードウェアと制御の実装記録。</p>
+  <div class="cover-meta">
+    <div><span>Author</span><b class="author"><img src="anji_icon.jpeg" alt="">Anji Fujiwara</b></div>
+  </div>
+</section>
+
+<div class="pipeline">
+  <div class="pl-step"><div class="n">01</div><div class="t">指のピンチを<br>Unityで検出</div></div>
+  <div class="pl-step"><div class="n">02</div><div class="t">UDPで<br>Motor Piへ送信</div></div>
+  <div class="pl-step"><div class="n">03</div><div class="t">PD制御で<br>目標位置を追従</div></div>
+  <div class="pl-step"><div class="n">04</div><div class="t">STSサーボを<br>シリアルで駆動</div></div>
+  <div class="pl-step"><div class="n">05</div><div class="t">ドラムがケーブルを<br>巻き取る</div></div>
+  <div class="pl-step"><div class="n">06</div><div class="t">前腕が<br>持ち上がる</div></div>
+</div>
+
+<div class="page">
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Prologue</span>
+    <span class="chapter-stage">Overview</span>
+  </div>
+  <h2>まえがき</h2>
+
+  <p>MetaPuppetの体験の芯は、ソフトウェアだけでは成立しない。カメラの映像やVRの描画が伝送・合成の記録なら、こちらの記録はその先、実際に参加者の体に力を及ぼす部分についてのものである。参加者は自分の指を動かす。その指の動きをVR側のハンドトラッキングが検出し、UDPで1本、Raspberry Piへ送る。Piはその値を目標位置としてPD制御でサーボを追いかけさせ、サーボの回転がドラムに巻かれたケーブルを引き、ケーブルは参加者自身のもう一方の前腕を持ち上げる。指を動かした本人が、次の瞬間には外力で動かされる側にもなる<sup class="fnref" id="fnref-roles"><a href="#fn-roles">[1]</a></sup>。</p>
+
+  <p>この記録では、参加者の指先から前腕までの力の経路を、実際に動いているコードに沿って辿る。入力側のハンドトラッキングとUDP送信はUnity(C#)で、受信・PD制御・サーボ駆動はRaspberry Pi上のPythonで実装している。</p>
+
+  <div class="embed portrait">
+    <img src="rig_overview.jpg" alt="正面から見たフレーム。上部のクロスバーから2本のコードが垂れ下がり、それぞれ手首用のカフに繋がっている。中央下にはノートPCが置かれ、床には黄色い非常停止ボタンも見える" loading="lazy">
+    <div class="embed-caption">実機のフレームを正面から見たところ。クロスバー上の2台のサーボからコードが伸び、それぞれ手首のカフに繋がる。手前のノートPCはMotor Piのダッシュボードを開いて較正するためのもの</div>
+  </div>
+
+  <div class="footnotes">
+    <ol>
+      <li id="fn-roles">同じ体の中に「動かす自分」と「動かされる自分」という2つの役割が同時に生じる、という捉え方は、この体験を用いた身体所有感・主体感の研究の枠組みそのものでもある。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 01</span>
+    <span class="chapter-stage">Input / Hand Tracking</span>
+  </div>
+  <h2>指のピンチをVR側でどう検出しているか</h2>
+
+  <p>入力は<code>MetaPuppetPinchUdpSender</code>というUnity側のコンポーネントが担っている。まず<a href="https://docs.unity3d.com/Packages/com.unity.xr.hands@latest">XR Hands</a>のジョイントから親指の先(ThumbTip)と人差し指の先(IndexTip)の位置を取得し、2点の中点を「ピンチ点」、2点間の距離を「ピンチ距離」として毎フレーム計算する。ピンチ距離があらかじめ決めたしきい値(既定で2.5cm)以下になった時点を「ピンチ中」と判定する。ヘッドセットのハンドトラッキングが関節を見失った場合には、Metaのポインティング入力(MetaAim)のピンチ強度をフォールバックとして使う経路も用意してあり、ジョイントの追跡が途切れても入力そのものが即座に消えないようにしている。</p>
+
+  <p>ピンチが続いている間、ピンチ点が前フレームからどれだけ鉛直方向に動いたか(<code>verticalDeltaCm</code>)と、ピンチを開始してからの累積移動量(<code>verticalTotalCm</code>)を、cm単位でフレームごとに計算する。前腕を持ち上げる/下ろす動作は、この鉛直成分だけを使っている。ピンチの検出方式(関節トラッキングかMetaAimか)が途中で切り替わっても、蓄積してきた<code>verticalTotalCm</code>自体は引き継ぎ、原点だけを付け替える(<code>Rebase</code>)ようにしてあるのは、切り替わった瞬間にモーターの目標値が飛ばないようにするためである。</p>
+
+  <div class="spec">
+    <div class="spec-title">ピンチ検出の実装値</div>
+    <table class="data">
+      <tr><th>項目</th><th>値</th></tr>
+      <tr><td>送信レート</td><td class="num">90 Hz</td></tr>
+      <tr><td>ピンチしきい値(関節トラッキング)</td><td class="num">2.5 cm</td></tr>
+      <tr><td>ピンチしきい値(MetaAim)</td><td class="num">strength ≥ 0.7、または index press</td></tr>
+      <tr><td>検出する軸</td><td class="num">鉛直方向(既定はワールド上方向)</td></tr>
+      <tr><td>左手 → モーター</td><td class="num">ID 5</td></tr>
+      <tr><td>右手 → モーター</td><td class="num">ID 6</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 02</span>
+    <span class="chapter-stage">UDP Packet</span>
+  </div>
+  <h2>UnityからRaspberry PiへのUDPパケット</h2>
+
+  <p>計算した値は、36バイトの独自パケットに詰めてUDPで送る。TCPではなくUDPを選んでいる理由は、映像伝送(<a href="https://meta-puppet.github.io/pipeline/">通信インフラの実装で頑張ったこと</a>で扱った独自UDPプロトコル)と同じで、多少パケットが欠けても、古い値を後から届けるより「今の指の位置」を継続して送り続けることの方が、力を発生させる用途では重要になるからである。</p>
+
+  <div class="code-wrap">
+    <div class="code-label">MetaPuppetPinchUdpSender.cs のパケットレイアウト(バージョン2、36バイト)</div>
+    <pre>char[4]  Magic;              <span class="c">// 'M','P','P','H'</span>
+byte     Version;            <span class="c">// = 2</span>
+byte     Hand;                <span class="c">// 0 = left, 1 = right</span>
+byte     MotorId;             <span class="c">// このパケットが駆動するサーボID</span>
+uint32   Sequence;
+double   TimestampSeconds;
+byte     IsPinch;
+float    VerticalDeltaCm;     <span class="k">// 前フレームからの差分</span>
+float    VerticalTotalCm;     <span class="k">// ピンチ開始からの累積</span>
+float    PinchDistanceCm;
+float    PinchStrength;</pre>
+  </div>
+
+  <p>バージョン2で<code>MotorId</code>をパケット自体に持たせているのは、どの手がどのサーボを駆動するかをPi側の固定マッピングだけに頼らず、Unity側のInspectorで(<code>Left Hand Motor Id</code> / <code>Right Hand Motor Id</code>として)明示的に指定できるようにするためである。バージョン1のパケット(<code>MotorId</code>フィールドを持たない、32バイトの旧形式)も後方互換として受け付けており、その場合はPi起動時の引数(<code>--left-hand-servo-id</code> / <code>--right-hand-servo-id</code>)がフォールバックのマッピングになる。</p>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 03</span>
+    <span class="chapter-stage">Two-Pi Architecture</span>
+  </div>
+  <h2>カメラPiとMotor Pi、2台構成にした理由</h2>
+
+  <p>MetaPuppetの現場では、Raspberry Piを2台使っている。ステレオカメラの撮影・エンコード・独自UDP伝送を担う「カメラPi」と、この記録の主題であるサーボ駆動を担う「Motor Pi」である。カメラPi側の実装は<a href="https://meta-puppet.github.io/pipeline/">別記事</a>に譲るが、この2台構成にしたのは単純で、カメラのキャプチャ・エンコードと、サーボのシリアル通信・PD制御ループは、どちらも遅延に敏感な処理でありながら性質が全く別で、1台のPiに同居させるとどちらかの処理がもう片方の足を引っ張りかねないからである。</p>
+
+  <div class="diagram">
+    <div class="diagram-title">現場のネットワーク構成</div>
+    <div class="dg-col">
+      <div class="dg-step"><b>PC / Unity</b><small>ハンドトラッキングを処理し、ピンチパケットをMotor Piへ、映像処理の結果をHMDへ描画する</small></div>
+      <div class="dg-down">↓ UDP :5005(ピンチパケット)</div>
+      <div class="dg-step hot"><b>Motor Pi — pi_motor_webui.py :8080</b><small>UDP受信・PD制御・STSサーボ駆動。カメラPiの<code>mp_control.py</code>から<code>/api/motor/*</code>でプロキシもされる</small></div>
+      <div class="dg-down">↓ シリアル(半二重、1 Mbps)</div>
+      <div class="dg-step gpu"><b>STSサーボ ×2(ID 5, 6)</b><small>ケーブルを巻き取るドラムを回す</small></div>
+    </div>
+  </div>
+
+  <p>カメラPiの統合ダッシュボード(<code>mp_control.py</code>、ポート7000)は、Motor PiのAPIを<code>/api/motor/*</code>にそのままプロキシしていて、現場ではカメラPiのダッシュボード1画面から、カメラの状態とサーボの状態を両方確認できるようにしている。2台のPiはTailscale<sup class="fnref" id="fnref-tailscale"><a href="#fn-tailscale">[1]</a></sup>でも繋がっており、本番用の固定配線(Ethernet)と、遠隔デバッグ用のTailscaleを、同じPiの別インターフェースとして共存させている。</p>
+
+  <div class="footnotes">
+    <ol>
+      <li id="fn-tailscale"><a href="https://tailscale.com/">Tailscale</a>はWireGuardベースのメッシュVPN。異なるネットワークにいる機材同士に、固定的な私設IPアドレスを割り当てて直接通信できるようにするサービスで、会場のLANとは別に、開発者が遠隔から機材の状態を確認・操作するための経路として使っている。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 04</span>
+    <span class="chapter-stage">Serial Bus Servo</span>
+  </div>
+  <h2>STSサーボと、自前で組み立てるシリアルパケット</h2>
+
+  <p>ドラムを回しているのは、Feetechの<a href="https://www.feetechrc.com/">STSシリーズ</a>のシリアルバスサーボ2台(ID 5・6)である。ホビー向けのPWMサーボと違い、STSサーボは半二重の非同期シリアル(既定1 Mbps)1本に複数台をIDで区別してぶら下げ、位置・速度・トルクのオン/オフをレジスタ経由で読み書きできる。Motor Piは、このシリーズ向けに配布されている<code>scservo_sdk</code>のうち、シリアルポートを開閉する<code>PortHandler</code>だけを使い、実際に流すパケットは自前で組み立てている。</p>
+
+  <div class="code-wrap">
+    <div class="code-label">パケットフォーマット(STSバスプロトコル)</div>
+    <pre>0xFF 0xFF  ID  Length  Instruction  [Params...]  Checksum
+<span class="c">// Checksum = ~(ID + Length + Instruction + Params...) の下位1バイト</span>
+<span class="c">// ID 0xFE はブロードキャストID。複数サーボへの同時書き込み(Sync Write, 0x83)に使う</span></pre>
+  </div>
+
+  <div class="embed portrait">
+    <img src="servo_mount_detail.jpg" alt="フレームを下から見上げたアングル。3Dプリント製のマウントに固定された2台のSTSサーボが縦に並び、そこから細いコードが下の手首カフへ伸びている。赤白の細い配線も一緒に取り出されている" loading="lazy">
+    <div class="embed-caption">フレーム上部を見上げたところ。3Dプリント製マウントに固定されたSTSサーボ2台から、コードが手首カフへ伸びる</div>
+  </div>
+
+  <p>起動時に各サーボへPingを送って応答を確認したあと、モード切り替えレジスタ(アドレス33)に1を書き込んで「ホイールモード」<sup class="fnref" id="fnref-wheel"><a href="#fn-wheel">[1]</a></sup>にし、トルクオン(アドレス40)を有効にする。以降、現在位置・現在速度はアドレス56から4バイトまとめて読み出し、目標位置(Sync Write、アドレス42)と回転速度(Sync Write、アドレス41)は、2台分のIDと値をまとめて1回のブロードキャストパケットで書き込む。応答を待たない書き込み(<code>write_packet_no_response</code>)にしているのは、位置・速度の指令は毎フレーム続くものであり、書き込みのたびにサーボからの応答を待っていると、その分だけPD制御ループの周期が遅くなるためである。</p>
+
+  <div class="footnotes">
+    <ol>
+      <li id="fn-wheel">STSサーボは、指定した角度まで回って止まる通常の「サーボモード」と、上限・下限なく回転し続けられる「ホイールモード」を切り替えられる。MetaPuppetではケーブルをドラムに巻き取り続ける必要があるため、角度に制限のないホイールモードを使い、目標位置ではなく回転速度を指令する。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 05</span>
+    <span class="chapter-stage">PD Control Loop</span>
+  </div>
+  <h2>ピンチ量を目標位置に変換するPD制御</h2>
+
+  <p>Motor Piの制御モードは、大きく分けて2つある。手動ジョグ用の<code>relative</code>モード(その場でサーボを一定量だけ動かす)と、UDPで届く指の位置を追いかけ続ける<code>pd</code>モードで、現場ではUnityからの入力は常に<code>pd</code>モードで受けている。</p>
+
+  <p>PDモードでは、パケットに入っている「ピンチ開始からの累積移動量(<code>total_cm</code>)」に、<code>counts_per_cm</code>(較正で決めるcmあたりのエンコーダカウント数、既定290)を掛けたものを目標カウント値とする。この目標値と、内部で保持している推定位置との差を誤差(error)とし、誤差の大きさに比例した項(Kp)と、誤差の変化率に比例した項(Kd)を足し合わせて、サーボへ送る回転速度の指令値を作る<sup class="fnref" id="fnref-pd"><a href="#fn-pd">[1]</a></sup>。</p>
+
+  <div class="code-wrap">
+    <div class="code-label">pi_motor_webui.py の要点(PD追従ループ)</div>
+    <pre>target = total_cm * counts_per_cm * direction
+error  = target - estimated_position
+speed  = clamp(Kp * error + Kd * (error - previous_error) / dt, -speed_limit, speed_limit)
+<span class="c">// 誤差が小さいのに速度も小さければ0にする(デッドバンド)</span>
+<span class="c">// 0でなければ最低速度(min_command_speed)を下回らないよう底上げする(スティクション対策)</span>
+<span class="c">// 前回速度からの変化量を pd_accel_limit * dt でクリップする(急加速の抑制)</span>
+estimated_position += speed * dt</pre>
+  </div>
+
+  <p>ここで注意が要るのは、誤差計算の基準にしている「推定位置」が、サーボから読み返した実際の位置ではなく、直前まで送り続けた速度指令を時間積分しただけの、Pi内部だけの見積もり値だという点である。つまりこのPD制御は、サーボの実位置を毎周期フィードバックする厳密な閉ループではなく、指令速度から自分の現在位置を見積もりながら目標に近づけていく、半分開ループのフォロワーになっている。シリアルバスサーボの位置読み出しは、指令の送信ほど高頻度には回せないため、この設計は精度よりも制御周期の安定を優先した結果である。デッドバンドと最低速度、加速度の上限は、狙った位置の手前でサーボがカクカクと往復し続けたり、参加者の腕に急な衝撃が伝わったりしないようにするための、実運用上の緩衝材にあたる。</p>
+
+  <div class="spec">
+    <div class="spec-title">Motor Pi の制御パラメータ(リポジトリ既定値。会場ごとの較正で上書きされる)</div>
+    <table class="data">
+      <tr><th>項目</th><th>値</th></tr>
+      <tr><td>counts / cm</td><td class="num">290</td></tr>
+      <tr><td>ドラム径(想定)</td><td class="num">約 3 cm</td></tr>
+      <tr><td>PD Kp / Kd</td><td class="num">8.0 / 3.0</td></tr>
+      <tr><td>速度上限 / 加速度上限</td><td class="num">3000 / 400(手動時)、pd_accel_limit 20000(PD時)</td></tr>
+      <tr><td>最低指令速度</td><td class="num">10</td></tr>
+      <tr><td>デッドバンド</td><td class="num">3 counts</td></tr>
+      <tr><td>モーター方向</td><td class="num">既定で反転(<code>--invert</code>)</td></tr>
+    </table>
+  </div>
+
+  <div class="footnotes">
+    <ol>
+      <li id="fn-pd">PD制御は、目標値と現在値の差(比例項, P)に加えて、その差が縮まっている最中か広がっている最中かという変化の勢い(微分項, D)も見て指令を作る制御方式。比例項だけだと目標付近で行き過ぎては戻る振動を起こしやすく、微分項がその振動にブレーキをかける役割を果たす。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 06</span>
+    <span class="chapter-stage">Web Dashboard / Calibration</span>
+  </div>
+  <h2>現場での較正とマニュアル操作</h2>
+
+  <p>Motor Piは起動するとFlaskの<a href="http://100.65.206.21:8080/">Webダッシュボード</a>を8080番ポートで公開する。ここには、各サーボの現在位置・目標位置・速度・トルク状態を250msごとに表示するテーブルと、1 mm・10 mm・100 mm刻みでサーボを直接動かせるマニュアルジョグ、現在位置をその場で「初期位置」として登録し直す<code>Set Initial</code>ボタン、そしてPDのKp/Kd・counts/cm・加速度上限・最低指令速度をプロセスを再起動せずにその場で書き換えられる調整パネルが並んでいる。</p>
+
+  <p>マニュアルジョグは、指定したmm数を<code>counts_per_cm</code>で換算し、その移動に何ミリ秒かける想定かという最短時間(<code>min-jog-ms</code>、既定120ms)から逆算した速度でサーボを回すという、PDモードとは別の素朴な実装になっている。これは主に、参加者が装着する前にケーブルの張り具合やドラムの巻き取り位置を人手で調整するための機能で、PDモードで使っているのと同じ<code>counts_per_cm</code>の物理較正値を共有している。</p>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Chapter 07</span>
+    <span class="chapter-stage">Safety</span>
+  </div>
+  <h2>安全設計 — 参加者の体に力を及ぼす機構であること</h2>
+
+  <p>カメラや映像のパイプラインが壊れても、起きることは「映像が乱れる」までである。しかしこの機構は参加者の腕を実際に動かす力を出すため、壊れ方の設計をソフトウェアだけで済ませるわけにはいかない。実装の中には、性質の異なる複数の安全策が積み重なっている。</p>
+
+  <div class="safety">
+    <div class="safety-title">起動直後はモーターを動かさない</div>
+    <p style="margin:0">Motor Piは起動時、UDPでの駆動指令を受け付けてはいるが、<code>udp_enabled</code>フラグは既定でオフになっている。ダッシュボードから機構を目視で確認し、スタッフが明示的にUDPを有効化して初めてサーボが指令に応答する。</p>
+  </div>
+
+  <div class="embed portrait">
+    <img src="estop_button.jpg" alt="床に置かれた黄色い筐体に赤いキノコ型の非常停止ボタン。ボタンには EMERGENCY STOP と書かれている。周囲にHMDやケーブル類が置かれている" loading="lazy">
+    <div class="embed-caption">現場に置かれた物理的な非常停止ボタン。ソフトウェア側の緊急停止(Unity側の2系統)とは独立した、最後の手段</div>
+  </div>
+
+  <p>ソフトウェア側の設計とは別に、現場には物理的な非常停止ボタンも置いている。これはUnity側やMotor Pi側のソフトウェアを経由せず、電源系統に直接介入するためのもので、ソフトウェアがどのような状態に陥っていても機構を止められるという意味で、これから説明する2系統のソフトウェア的な緊急停止よりもさらに一段階、独立した最後の手段にあたる。</p>
+
+  <p>Unity側にも、参加者・スタッフのどちらからでも独立に止められる2系統の緊急停止を用意している。1つはスタッフ用で、キーボードのEscapeキーを押すと即座に発動する。もう1つは装着している本人用で、両手を同時に5秒間ピンチし続けるというジェスチャーで発動する。この5秒という長さは、プレイ中に偶発的に両手が同時にピンチしてしまっても誤発動しない程度に長く、かつ本人がスタッフの反応を待たずに自分の意思だけで止められる程度に短い、という両立を狙った値である。</p>
+
+  <p>どちらの経路で発動しても、シーン内に存在するすべての<code>MetaPuppetPinchUdpSender</code>(および関連するワイヤー駆動コンポーネント)に対して即座に停止パケットが送られ、以後は駆動用の実パケットではなく安全用の空パケットだけを送り続ける状態に切り替わる。この停止状態はプロセスの生存期間中ラッチされ、シーンをリロードしただけでは解除されない仕組みになっており、HMD内には赤字で警告テキストが表示され続ける。安全のために止めた状態を、うっかり操作で元に戻せてしまっては意味がないという判断による設計である。</p>
+
+  <p>PD制御側のデッドバンドと加速度上限(第5章)も、この安全設計の一部として働く。目標値の手前でサーボが微振動し続けることも、目標が急に変わったときに腕へ急な衝撃が伝わることも、どちらも参加者の体に直接触れる機構である以上、映像のコマ落ちとは重みが違う失敗である。</p>
+</section>
+
+<section class="chapter">
+  <div class="chapter-head">
+    <span class="chapter-num">Epilogue</span>
+    <span class="chapter-stage">Summary</span>
+  </div>
+  <h2>あとがき</h2>
+
+  <p>指のピンチ量をUDPパケットに詰め、PD制御でサーボの回転速度に変換し、ドラムに巻かれたケーブルで前腕を持ち上げる。文章にすればこれだけの経路だが、そのどの区間にも、参加者の体に直接力が及ぶという前提から逆算された制約が入り込んでいる。目標値の追い方(PD制御であって単純な位置指令ではない理由)、駆動の起動条件(既定オフのUDP)、止め方(2系統の独立した緊急停止とラッチ)は、そのすべてが「動く」ことより先に「安全に止められる」ことを設計の起点に置いている。</p>
+
+  <p>このハードウェアが実現しようとしている問い — 自分の指で始めた動きが、自分自身の体の別の部分を外力で動かす経験は何をもたらすのか — についての実験的な枠組みは、別稿のポスター草稿にまとめている。この記録は、その問いを実際に会場で成立させるために書いた、地味な配線とパケットとゲインの記録である。</p>
+
+  <div class="signature">
+    <div>MetaPuppet — Hardware &amp; Control Notes</div>
+    <div>Anji Fujiwara</div>
+  </div>
+
+</section>
+
+</div>
+
+<div class="pagefoot">MetaPuppet</div>
+
+</article>
+</body>
+</html>
