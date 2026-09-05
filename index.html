@@ -208,6 +208,7 @@ body{
   font-size:13px;
 }
 
+.chapter{scroll-margin-top:80px;}
 .chapter{
   border-top:1px solid var(--rule-strong);
   padding-top:46px;
@@ -569,7 +570,7 @@ sup.fnref a{color:inherit;text-decoration:none;}
 
 <div class="page">
 
-<section class="chapter">
+<section class="chapter" id="prologue">
   <div class="chapter-head">
     <span class="chapter-num">Prologue</span>
     <span class="chapter-stage">Overview</span>
@@ -592,7 +593,7 @@ sup.fnref a{color:inherit;text-decoration:none;}
   </div>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch01">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 01</span>
     <span class="chapter-stage">Input / Hand Tracking</span>
@@ -617,7 +618,7 @@ sup.fnref a{color:inherit;text-decoration:none;}
   </div>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch02">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 02</span>
     <span class="chapter-stage">UDP Packet</span>
@@ -644,7 +645,7 @@ float    PinchStrength;</pre>
   <p>バージョン2で<code>MotorId</code>をパケット自体に持たせているのは、どの手がどのサーボを駆動するかをPi側の固定マッピングだけに頼らず、Unity側のInspectorで(<code>Left Hand Motor Id</code> / <code>Right Hand Motor Id</code>として)明示的に指定できるようにするためである。バージョン1のパケット(<code>MotorId</code>フィールドを持たない、32バイトの旧形式)も後方互換として受け付けており、その場合はPi起動時の引数(<code>--left-hand-servo-id</code> / <code>--right-hand-servo-id</code>)がフォールバックのマッピングになる。</p>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch03">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 03</span>
     <span class="chapter-stage">Two-Pi Architecture</span>
@@ -673,7 +674,7 @@ float    PinchStrength;</pre>
   </div>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch04">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 04</span>
     <span class="chapter-stage">Serial Bus Servo</span>
@@ -703,7 +704,7 @@ float    PinchStrength;</pre>
   </div>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch05">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 05</span>
     <span class="chapter-stage">PD Control Loop</span>
@@ -748,7 +749,7 @@ estimated_position += speed * dt</pre>
   </div>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch06">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 06</span>
     <span class="chapter-stage">Web Dashboard / Calibration</span>
@@ -760,7 +761,7 @@ estimated_position += speed * dt</pre>
   <p>マニュアルジョグは、指定したmm数を<code>counts_per_cm</code>で換算し、その移動に何ミリ秒かける想定かという最短時間(<code>min-jog-ms</code>、既定120ms)から逆算した速度でサーボを回すという、PDモードとは別の素朴な実装になっている。これは主に、参加者が装着する前にケーブルの張り具合やドラムの巻き取り位置を人手で調整するための機能で、PDモードで使っているのと同じ<code>counts_per_cm</code>の物理較正値を共有している。</p>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="ch07">
   <div class="chapter-head">
     <span class="chapter-num">Chapter 07</span>
     <span class="chapter-stage">Safety</span>
@@ -788,7 +789,7 @@ estimated_position += speed * dt</pre>
   <p>PD制御側のデッドバンドと加速度上限(第5章)も、この安全設計の一部として働く。目標値の手前でサーボが微振動し続けることも、目標が急に変わったときに腕へ急な衝撃が伝わることも、どちらも参加者の体に直接触れる機構である以上、映像のコマ落ちとは重みが違う失敗である。</p>
 </section>
 
-<section class="chapter">
+<section class="chapter" id="epilogue">
   <div class="chapter-head">
     <span class="chapter-num">Epilogue</span>
     <span class="chapter-stage">Summary</span>
